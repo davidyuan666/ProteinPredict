@@ -28,7 +28,11 @@ need_cmd() {
 
 echo "[1/${TOTAL}] Checking dependencies..."
 need_cmd python
-need_cmd uv
+if ! command -v uv &>/dev/null; then
+    echo "      uv not found, installing..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.cargo/bin:$PATH"
+fi
 need_cmd nvidia-smi
 echo "      python   : $(python --version 2>/dev/null || echo '???')"
 echo "      uv       : $(uv --version 2>/dev/null || echo '???')"
