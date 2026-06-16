@@ -2,11 +2,19 @@
 set -euo pipefail
 
 WITH_MD=false
+MINIMAL=false
 
 for arg in "$@"; do
     case "$arg" in
         --full|--with-md) WITH_MD=true ;;
-        --help) echo "Usage: install.sh [--full | --with-md]"; echo "  --full  Also install MD validation tools (OpenMM)"; exit 0 ;;
+        --minimal) MINIMAL=true ;;
+        --help)
+            echo "Usage: install.sh [--full | --with-md] [--minimal]"
+            echo ""
+            echo "  --full      Also install MD validation tools (OpenMM, +2min)"
+            echo "  --minimal   Skip colabfold[alphafold] extras (~200MB saved)"
+            exit 0
+            ;;
     esac
 done
 
@@ -15,8 +23,9 @@ if $WITH_MD; then TOTAL=6; fi
 
 echo "========================================"
 echo "  ColabFold GPU Server Installer"
-[ "$WITH_MD" = true ] && echo "  (with MD validation tools)"
 echo "========================================"
+$WITH_MD && echo "  (MD validation included)"
+$MINIMAL && echo "  (minimal install, skipping alphafold extras)"
 echo ""
 
 need_cmd() {
@@ -28,61 +37,115 @@ need_cmd() {
 
 echo "[1/${TOTAL}] Checking dependencies..."
 need_cmd python
-if ! command -v uv &>/dev/null; then
-    echo "      uv not found, installing..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.cargo/bin:$PATH"
-fi
 need_cmd nvidia-smi
+
 echo "      python   : $(python --version 2>/dev/null || echo '???')"
-echo "      uv       : $(uv --version 2>/dev/null || echo '???')"
 echo "      CUDA     : $(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)"
 
+CUDA_MAJOR=$(nvidia-smi | grep -oP "CUDA Version: \K[0-9]+" 2>/dev/null || echo "12")
+echo "      CUDA ver : ${CUDA_MAJOR}.x"
+
+# Auto-detect correct jax CUDA variant
+if [ "$CUDA_MAJOR" = "12" ]; then
+    JAX_CUDA="jax[cuda12]"
+elif [ "$CUDA_MAJOR" = "11" ]; then
+    JAX_CUDA="jax[cuda11]"
+else
+    echo "      [WARN] Unrecognized CUDA version '${CUDA_MAJOR}', defaulting to cuda12"
+    JAX_CUDA="jax[cuda12]"
+fi
+
+# Install uv if missing (fast pip alternative)
+UV_AVAILABLE=false
+if command -v uv &>/dev/null; then
+    UV_AVAILABLE=true
+else
+    echo "      uv not found, installing (1 sec)..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.cargo/bin:$PATH"
+    UV_AVAILABLE=true
+fi
+
+echo "      uv       : $(uv --version 2>/dev/null || echo '???')"
+
+# Pre-existing package check helper
+already_installed() {
+    python -c "import $1" 2>/dev/null && echo "true" || echo "false"
+}
+
 echo ""
-echo "[2/${TOTAL}] Installing colabfold[alphafold]..."
-uv pip install -U --system "colabfold[alphafold]" jax[cuda12]
+echo "[2/${TOTAL}] Installing colabfold + JAX..."
+
+if $MINIMAL; then
+    CF_PKG="colabfold"
+    echo "      (minimal: skipping [alphafold] extras)"
+else
+    CF_PKG="colabfold[alphafold]"
+fi
+
+uv pip install -U --system "${CF_PKG}" "${JAX_CUDA}"
+
 echo "      Done."
 
 if $WITH_MD; then
     echo ""
-    echo "[3/${TOTAL}] Installing OpenMM + MD tools..."
-    uv pip install --system openmm pdbfixer mdtraj matplotlib
+    echo "[3/${TOTAL}] Installing MD tools (OpenMM, PDBFixer, MDTraj)..."
+
+    MD_DEPS="openmm pdbfixer mdtraj"
+    SKIP_LIST=""
+    for pkg in openmm pdbfixer mdtraj matplotlib; do
+        mod=$(echo "$pkg" | sed 's/-/_/g')
+        if [ "$(already_installed "${mod}")" = "true" ]; then
+            echo "      [skip] ${pkg} already installed"
+        else
+            SKIP_LIST="${SKIP_LIST} ${pkg}"
+        fi
+    done
+
+    if [ -n "${SKIP_LIST}" ]; then
+        uv pip install --system ${SKIP_LIST}
+    fi
+
     echo "      Done."
+
+    STEP_NOW=5
+
     echo ""
     echo "[4/${TOTAL}] Verifying MD tools..."
     python -c "
 import openmm as mm
-print(f'      openmm version: {mm.__version__}')
 platforms = [mm.Platform.getPlatform(i).getName() for i in range(mm.Platform.getNumPlatforms())]
-print(f'      platforms      : {platforms}')
+print(f'      openmm v{mm.__version__}  platforms: {platforms}')
 if 'CUDA' in platforms:
-    print(f'      GPU (CUDA)     : available')
+    print('      OpenMM GPU (CUDA) : available')
+elif 'OpenCL' in platforms:
+    print('      OpenMM OpenCL     : available (CPU)')
 else:
-    print(f'      [WARN] CUDA platform not found. OpenMM may run on CPU.')
-import pdbfixer
-print(f'      pdbfixer        : OK')
-import mdtraj
-print(f'      mdtraj          : {mdtraj.__version__}')
-import matplotlib
-print(f'      matplotlib      : {matplotlib.__version__}')
+    print('      OpenMM            : CPU only')
+import mdtraj, matplotlib
+print(f'      mdtraj v{mdtraj.__version__}    matplotlib OK')
 "
-    STEP_NOW=5
 else
     STEP_NOW=3
 fi
 
 echo ""
-echo "[${STEP_NOW}/${TOTAL}] Verifying colabfold installation..."
+echo "[${STEP_NOW}/${TOTAL}] Verifying colabfold + JAX..."
+
 python -c "
 import colabfold
-print(f'      colabfold version: {colabfold.__version__}')
+print(f'      colabfold : v{colabfold.__version__}')
 import jax
-print(f'      jax version      : {jax.__version__}')
+print(f'      jax       : v{jax.__version__}')
+import jaxlib
+print(f'      jaxlib    : v{jaxlib.__version__}')
 devices = jax.devices('gpu')
 if devices:
-    print(f'      GPU detected     : {devices[0].device_kind}')
+    print(f'      GPU       : {devices[0].device_kind} ({len(devices)} device(s))')
 else:
-    print('      [WARN] No GPU device found by jax. Check CUDA/cudnn setup.')
+    print('      [WARN] No GPU device found by jax. Check CUDA/cuDNN setup.')
+import numpy, scipy, matplotlib
+print(f'      numpy v{numpy.__version__}, scipy v{scipy.__version__}')
 "
 
 STEP_NOW=$((STEP_NOW + 1))
@@ -94,7 +157,7 @@ echo "========================================"
 echo "  Installation complete!"
 echo "========================================"
 echo ""
-echo "  To use:"
+echo "  Usage:"
 echo "    ./predict.sh example.fasta"
 echo "    ./predict.sh --seq 'MKFLILF...' --name my_protein"
 if $WITH_MD; then
@@ -105,6 +168,4 @@ else
     echo "  MD validation not installed."
     echo "  To add it: ./install.sh --full"
 fi
-echo ""
-echo "  Output will be packed as *_<timestamp>.tar.gz"
 echo ""
