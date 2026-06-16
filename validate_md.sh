@@ -2,7 +2,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_NAME="colabfold"
 
 usage() {
     cat <<EOF
@@ -55,12 +54,6 @@ if [ -z "${INPUT_FILE}" ]; then
     echo "[ERROR] No input file provided."
     usage
 fi
-
-eval "$(conda shell.bash hook)"
-conda activate "${ENV_NAME}" || {
-    echo "[ERROR] Conda env '${ENV_NAME}' not found. Run install.sh --full first."
-    exit 1
-}
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 VA_DIR="${SCRIPT_DIR}/validation_${TIMESTAMP}"

@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_NAME="colabfold"
-PYTHON_VER="3.10"
 WITH_MD=false
 
 for arg in "$@"; do
@@ -12,8 +10,8 @@ for arg in "$@"; do
     esac
 done
 
-TOTAL=5
-if $WITH_MD; then TOTAL=7; fi
+TOTAL=4
+if $WITH_MD; then TOTAL=6; fi
 
 echo "========================================"
 echo "  ColabFold GPU Server Installer"
@@ -29,42 +27,25 @@ need_cmd() {
 }
 
 echo "[1/${TOTAL}] Checking dependencies..."
-need_cmd conda
+need_cmd python
+need_cmd uv
 need_cmd nvidia-smi
-echo "      conda    : $(conda --version 2>/dev/null || echo '???')"
+echo "      python   : $(python --version 2>/dev/null || echo '???')"
+echo "      uv       : $(uv --version 2>/dev/null || echo '???')"
 echo "      CUDA     : $(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)"
 
 echo ""
-echo "[2/${TOTAL}] Creating conda environment '${ENV_NAME}' (python=${PYTHON_VER})..."
-if conda env list | grep -q "^${ENV_NAME} "; then
-    echo "      Environment '${ENV_NAME}' already exists, skipping creation."
-else
-    conda create -n "${ENV_NAME}" python="${PYTHON_VER}" -y
-    echo "      Done."
-fi
-
-echo ""
-echo "[3/${TOTAL}] Activating environment and installing colabfold..."
-
-eval "$(conda shell.bash hook)"
-conda activate "${ENV_NAME}"
-
-echo "      Upgrading pip..."
-pip install --upgrade pip -q
-
-echo "      Installing colabfold[alphafold]..."
-pip install -U "colabfold[alphafold]" jax[cuda12]
-
+echo "[2/${TOTAL}] Installing colabfold[alphafold]..."
+uv pip install -U "colabfold[alphafold]" jax[cuda12]
 echo "      Done."
 
 if $WITH_MD; then
     echo ""
-    echo "[4/${TOTAL}] Installing OpenMM + MD tools..."
-    pip install openmm pdbfixer mdtraj matplotlib
-
+    echo "[3/${TOTAL}] Installing OpenMM + MD tools..."
+    uv pip install openmm pdbfixer mdtraj matplotlib
     echo "      Done."
     echo ""
-    echo "[5/${TOTAL}] Verifying MD tools..."
+    echo "[4/${TOTAL}] Verifying MD tools..."
     python -c "
 import openmm as mm
 print(f'      openmm version: {mm.__version__}')
@@ -81,9 +62,9 @@ print(f'      mdtraj          : {mdtraj.__version__}')
 import matplotlib
 print(f'      matplotlib      : {matplotlib.__version__}')
 "
-    STEP_NOW=6
+    STEP_NOW=5
 else
-    STEP_NOW=4
+    STEP_NOW=3
 fi
 
 echo ""
@@ -102,8 +83,7 @@ else:
 
 STEP_NOW=$((STEP_NOW + 1))
 echo ""
-echo "[${STEP_NOW}/${TOTAL}] Cleaning up..."
-conda deactivate
+echo "[${STEP_NOW}/${TOTAL}] Done."
 
 echo ""
 echo "========================================"
@@ -111,12 +91,11 @@ echo "  Installation complete!"
 echo "========================================"
 echo ""
 echo "  To use:"
-echo "    conda activate ${ENV_NAME}"
-echo "    predict.sh example.fasta"
-echo "    predict.sh --seq 'MKFLILF...' --name my_protein"
+echo "    ./predict.sh example.fasta"
+echo "    ./predict.sh --seq 'MKFLILF...' --name my_protein"
 if $WITH_MD; then
-    echo "    validate_md.sh my_protein.pdb"
-    echo "    validate_all.sh example.fasta --full-md"
+    echo "    ./validate_md.sh my_protein.pdb"
+    echo "    ./validate_all.sh example.fasta --full-md"
 else
     echo ""
     echo "  MD validation not installed."

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_NAME="colabfold"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 usage() {
@@ -64,12 +63,6 @@ fi
 if [ -n "${SEQUENCE}" ] && [ -z "${NAME}" ]; then
     echo "[ERROR] --seq requires --name."
     usage
-fi
-
-eval "$(conda shell.bash hook)"
-if ! conda activate "${ENV_NAME}" 2>/dev/null; then
-    echo "[ERROR] Conda env '${ENV_NAME}' not found. Run install.sh first."
-    exit 1
 fi
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
