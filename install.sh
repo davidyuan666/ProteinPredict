@@ -40,13 +40,13 @@ echo "      CUDA     : $(nvidia-smi --query-gpu=driver_version --format=csv,nohe
 
 echo ""
 echo "[2/${TOTAL}] Installing colabfold[alphafold]..."
-uv pip install -U "colabfold[alphafold]" jax[cuda12]
+uv pip install -U --system "colabfold[alphafold]" jax[cuda12]
 echo "      Done."
 
 if $WITH_MD; then
     echo ""
     echo "[3/${TOTAL}] Installing OpenMM + MD tools..."
-    uv pip install openmm pdbfixer mdtraj matplotlib
+    uv pip install --system openmm pdbfixer mdtraj matplotlib
     echo "      Done."
     echo ""
     echo "[4/${TOTAL}] Verifying MD tools..."
